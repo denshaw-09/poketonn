@@ -1,9 +1,7 @@
 const io = require('socket.io-client');
 const readline = require('readline');
-const axios = require('axios');
 
 const socket = io('http://localhost:3001');
-
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
@@ -11,7 +9,7 @@ const rl = readline.createInterface({
 
 // Game state
 let state = {
-  phase: 'menu', // menu, searching, selecting, battling
+  phase: 'menu',
   opponent: null,
   pokemonOptions: [],
   myPokemon: null,
@@ -46,13 +44,17 @@ socket.on('pokemonSelection', (data) => {
   state.phase = 'selecting';
   state.pokemonOptions = data.options;
   
-  console.log('\nChoose your Pokemon:');
+  console.log('\n=== POKÉMON SELECTION ===');
+  console.log(data.message);
   data.options.forEach((pokemon, index) => {
-    console.log(`${index + 1}. ${pokemon.name} (HP: ${pokemon.stats.hp}, Type: ${pokemon.types.join('/')})`);
-    console.log(`   Stats: ATK ${pokemon.stats.attack} DEF ${pokemon.stats.defense} SPD ${pokemon.stats.speed}`);
+    console.log(`\n${index + 1}. ${pokemon.name}`);
+    console.log(`   HP: ${pokemon.stats.hp}  ATK: ${pokemon.stats.attack}  DEF: ${pokemon.stats.defense}`);
+    console.log(`   SPA: ${pokemon.stats['special-attack']}  SPD: ${pokemon.stats['special-defense']}  SPE: ${pokemon.stats.speed}`);
+    console.log(`   Type: ${pokemon.types.join('/')}`);
+    console.log(`   Moves: ${pokemon.moves.slice(0, 4).map(m => m.name).join(', ')}`);
   });
   
-  rl.question('Select a Pokemon (1-3): ', (choice) => {
+  rl.question('\nSelect a Pokémon (1-3): ', (choice) => {
     const selection = parseInt(choice) - 1;
     if (selection >= 0 && selection < state.pokemonOptions.length) {
       playerData.selectedPokemon = state.pokemonOptions[selection];
@@ -60,6 +62,7 @@ socket.on('pokemonSelection', (data) => {
         pokemon: playerData.selectedPokemon 
       });
       console.log(`\nYou chose ${playerData.selectedPokemon.name}!`);
+      console.log('Waiting for opponent to choose...');
     } else {
       console.log('Invalid selection');
       socket.emit('pokemonSelection', data); // Re-send selection
@@ -68,7 +71,7 @@ socket.on('pokemonSelection', (data) => {
 });
 
 socket.on('opponentChosePokemon', () => {
-  console.log('\nOpponent has chosen their Pokémon. Waiting for battle to start...');
+  console.log('\nOpponent has chosen their Pokémon. Battle starting soon...');
 });
 
 socket.on('battleStart', (data) => {
@@ -77,9 +80,11 @@ socket.on('battleStart', (data) => {
   state.opponentPokemon = data.opponentPokemon;
   state.isMyTurn = data.currentTurn;
   
+  console.clear();
   console.log('\n=== BATTLE STARTED ===');
-  console.log(`You: ${state.myPokemon.name} vs Opponent: ${state.opponentPokemon.name}`);
-  console.log(`Opponent: ${data.opponentName}`);
+  console.log(`You: ${state.myPokemon.name} (Lv. 50)`);
+  console.log(`VS`);
+  console.log(`Opponent (${data.opponentName}): ${state.opponentPokemon.name} (Lv. 50)`);
   
   if (state.isMyTurn) {
     promptMove();
@@ -89,13 +94,15 @@ socket.on('battleStart', (data) => {
 });
 
 socket.on('gameUpdate', (data) => {
+  console.clear();
+  
   if (data.gameOver) {
     console.log('\n=== BATTLE OVER ===');
-    console.log(data.battleLog.join('\n'));
+    data.battleLog.forEach(log => console.log(log));
     if (data.winner === socket.id) {
-      console.log('You won the battle!');
+      console.log('\nYou won the battle!');
     } else {
-      console.log('You lost the battle!');
+      console.log('\nYou lost the battle!');
     }
     resetGameState();
     showMainMenu();
@@ -107,10 +114,8 @@ socket.on('gameUpdate', (data) => {
   state.isMyTurn = socket.id === data.currentTurn;
   state.battleLog = data.battleLog;
 
-  console.log('\n' + data.battleLog.slice(-3).join('\n'));
-  console.log(`\nYour ${state.myPokemon.name}: HP ${state.myPokemon.stats.hp}`);
-  console.log(`Opponent's ${state.opponentPokemon.name}: HP ${state.opponentPokemon.stats.hp}`);
-
+  displayBattleStatus();
+  
   if (state.isMyTurn) {
     promptMove();
   } else {
@@ -146,13 +151,23 @@ function showMainMenu() {
   });
 }
 
+function displayBattleStatus() {
+  console.log('\n=== BATTLE STATUS ===');
+  console.log(`Your ${state.myPokemon.name}: HP ${state.myPokemon.currentHp}/${state.myPokemon.originalStats.hp}`);
+  console.log(`Opponent's ${state.opponentPokemon.name}: HP ${state.opponentPokemon.currentHp}/${state.opponentPokemon.originalStats.hp}`);
+  
+  console.log('\n=== BATTLE LOG ===');
+  state.battleLog.slice(-5).forEach(log => console.log(log));
+}
+
 function promptMove() {
   if (!state.myPokemon || !state.myPokemon.moves) {
     console.log('No moves available');
     return;
   }
 
-  console.log('\nAvailable moves:');
+  console.log('\n=== YOUR TURN ===');
+  console.log('Available moves:');
   state.myPokemon.moves.forEach((move, index) => {
     console.log(`${index + 1}. ${move.name}`);
   });
@@ -160,9 +175,8 @@ function promptMove() {
   rl.question('Choose a move (1-4): ', (choice) => {
     const moveIndex = parseInt(choice) - 1;
     if (moveIndex >= 0 && moveIndex < state.myPokemon.moves.length) {
-      const selectedMove = state.myPokemon.moves[moveIndex];
       socket.emit('playerMove', {
-        move: selectedMove
+        moveIndex: moveIndex
       });
     } else {
       console.log('Invalid move selection');
@@ -185,6 +199,7 @@ function resetGameState() {
 }
 
 // Start the client
+console.clear();
 console.log('Pokémon Battle Client');
 console.log(`Player Name: ${playerData.name}`);
 console.log('Connecting to server...');

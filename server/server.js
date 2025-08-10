@@ -1,8 +1,6 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const axios = require('axios');
-const { v4: uuidv4 } = require('uuid');
 const BattleManager = require('./game_logic/battleManager');
 
 const app = express();
@@ -28,7 +26,6 @@ io.on('connection', (socket) => {
 
   // Handle matchmaking request
   socket.on('findMatch', (playerData) => {
-    console.log(`Player ${socket.id} is looking for a match`);
     battleManager.matchPlayers(socket, playerData);
   });
 
