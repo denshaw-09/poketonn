@@ -23,6 +23,10 @@ server.listen(PORT, () => {
 // Socket.io connection handler
 io.on('connection', (socket) => {
   console.log(`New client connected: ${socket.id}`);
+  
+  socket.on('exitGame', (exitData) => {
+    battleManager.handleExitGame(socket, exitData);
+  });
 
   // Handle matchmaking request
   socket.on('findMatch', (playerData) => {

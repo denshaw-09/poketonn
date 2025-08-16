@@ -55,90 +55,119 @@ class GameState {
   }
 
   async processMove(playerId, moveIndex, callback) {
-    if (playerId !== this.currentTurn) {
-      return callback({
-        error: "Not your turn",
-        currentTurn: this.currentTurn
-      });
-    }
-
-    const isPlayer1 = playerId === this.player1;
-    const attacker = isPlayer1 ? this.pokemon1 : this.pokemon2;
-    const defender = isPlayer1 ? this.pokemon2 : this.pokemon1;
-
-    if (moveIndex < 0 || moveIndex >= attacker.moves.length) {
-      return callback({
-        error: "Invalid move selection",
-        currentTurn: this.currentTurn
-      });
-    }
-
-    const move = attacker.moves[moveIndex];
-    let moveDetails;
-    
     try {
-      const response = await axiosInstance.get(move.url);
-      moveDetails = {
-        name: move.name,
-        power: response.data.power || 60,
-        accuracy: response.data.accuracy || 100,
-        type: response.data.type.name,
-        damage_class: response.data.damage_class.name
-      };
-    } catch (error) {
-      console.error('Error fetching move details:', error);
-      moveDetails = {
-        name: move.name,
-        power: 60,
-        accuracy: 100,
-        type: 'normal',
-        damage_class: 'physical'
-      };
-    }
+      if (playerId !== this.currentTurn) {
+        return callback({
+          error: "Not your turn",
+          currentTurn: this.currentTurn
+        });
+      }
+
+      const isPlayer1 = playerId === this.player1;
+      const attacker = isPlayer1 ? this.pokemon1 : this.pokemon2;
+      const defender = isPlayer1 ? this.pokemon2 : this.pokemon1;
+
+      if (moveIndex < 0 || moveIndex >= attacker.moves.length) {
+        return callback({
+          error: "Invalid move selection",
+          currentTurn: this.currentTurn
+        });
+      }
+
+      const move = attacker.moves[moveIndex];
+      let moveDetails;
+      
+      try {
+        const response = await axiosInstance.get(move.url);
+        moveDetails = {
+          name: move.name,
+          power: response.data.power || 60,
+          accuracy: response.data.accuracy || 100,
+          type: response.data.type.name,
+          damage_class: response.data.damage_class.name
+        };
+      } catch (error) {
+        console.error('Error fetching move details:', error);
+        moveDetails = {
+          name: move.name,
+          power: 60,
+          accuracy: 100,
+          type: 'normal',
+          damage_class: 'physical'
+        };
+      }
 
     // Check for move accuracy
-    if (Math.random() * 100 > moveDetails.accuracy) {
-      this.battleLog.push(`${attacker.name} used ${moveDetails.name}... but it missed!`);
+      if (Math.random() * 100 > moveDetails.accuracy) {
+        this.battleLog.push(`${attacker.name} used ${moveDetails.name}... but it missed!`);
+        this.currentTurn = isPlayer1 ? this.player2 : this.player1;
+        return callback({
+          pokemon1: this.pokemon1,
+          pokemon2: this.pokemon2,
+          currentTurn: this.currentTurn,
+          battleLog: this.battleLog,
+          gameOver: false
+        });
+      }
+
+      this.battleLog.push(`${attacker.name} used ${moveDetails.name}!`);
+
+      const damage = this.calculateDamage(attacker, defender, moveDetails);
+      defender.currentHp = Math.max(0, defender.currentHp - damage);
+
+      this.battleLog.push(`It dealt ${damage} damage to ${defender.name}!`);
+
+      if (defender.currentHp <= 0) {
+        this.battleLog.push(`${defender.name} fainted! ${attacker.name} wins!`);
+        return callback({
+          gameOver: true,
+          winner: playerId,
+          pokemon1: this.pokemon1,
+          pokemon2: this.pokemon2,
+          battleLog: this.battleLog,
+          roomId: this.roomId
+        });
+      }
+
       this.currentTurn = isPlayer1 ? this.player2 : this.player1;
-      return callback({
+      this.battleLog.push(`It's now ${this.currentTurn === this.player1 ? this.pokemon1.name : this.pokemon2.name}'s turn!`);
+
+      callback({
         pokemon1: this.pokemon1,
         pokemon2: this.pokemon2,
         currentTurn: this.currentTurn,
         battleLog: this.battleLog,
         gameOver: false
       });
-    }
-
-    this.battleLog.push(`${attacker.name} used ${moveDetails.name}!`);
-
-    const damage = this.calculateDamage(attacker, defender, moveDetails);
-    defender.currentHp = Math.max(0, defender.currentHp - damage);
-
-    this.battleLog.push(`It dealt ${damage} damage to ${defender.name}!`);
-
-    if (defender.currentHp <= 0) {
-      this.battleLog.push(`${defender.name} fainted! ${attacker.name} wins!`);
-      return callback({
-        gameOver: true,
-        winner: playerId,
-        pokemon1: this.pokemon1,
-        pokemon2: this.pokemon2,
-        battleLog: this.battleLog
+    
+      const result = {
+        pokemon1: this.safeClone(this.pokemon1),
+        pokemon2: this.safeClone(this.pokemon2),
+        currentTurn: this.currentTurn,
+        battleLog: [...this.battleLog],
+        gameOver: defender.currentHp <= 0
+      };
+      if (result.gameOver){
+        result.winner = playerId;
+        result.roomId = this.roomId;
+      }
+      callback(result);
+    }catch(error){
+      console.error('Error processing move:',error);
+      callback({
+        error: "Error processing move",
+        currentTurn: this.currentTurn
       });
     }
-
-    this.currentTurn = isPlayer1 ? this.player2 : this.player1;
-    this.battleLog.push(`It's now ${this.currentTurn === this.player1 ? this.pokemon1.name : this.pokemon2.name}'s turn!`);
-
-    callback({
-      pokemon1: this.pokemon1,
-      pokemon2: this.pokemon2,
-      currentTurn: this.currentTurn,
-      battleLog: this.battleLog,
-      gameOver: false
-    });
   }
-
+  safeClone(obj){
+    try{
+      return JSON.parse(JSON.stringify(obj));
+    }catch (error){
+      console.error('Error cloning object:', error);
+      return {};
+    }
+  }
   calculateDamage(attacker, defender, move) {
     const level = 50;
     const attackStat = move.damage_class === 'physical' ? 

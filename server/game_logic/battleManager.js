@@ -41,12 +41,14 @@ class BattleManager {
 
       player1Socket.emit('matchStatus', { 
         status: 'found',
-        opponent: player2Data.name
+        opponent: player2Data.name,
+        opponentId: player2Socket.id
       });
       
       player2Socket.emit('matchStatus', { 
         status: 'found',
-        opponent: player1Data.name
+        opponent: player1Data.name,
+        opponentId: player1Socket.id
       });
 
       this.handlePokemonSelection(player1Socket, player2Socket);
@@ -149,8 +151,22 @@ class BattleManager {
   }
 
   async startBattle(player1Socket, player2Socket) {
-    const player1Data = this.playerDataCache.get(player1Socket.id);
-    const player2Data = this.playerDataCache.get(player2Socket.id);
+    try{
+      const player1Data = this.playerDataCache.get(player1Socket.id);
+      const player2Data = this.playerDataCache.get(player2Socket.id);
+      if(!player1Data || !player2Data || !player1Data.selectedPokemon || !player2Data.selectedPokemon){
+        throw new Error('Missing player data for battle');
+      }
+      const clonePokemon = (pokemon) => {
+        try{
+          return JSON.parse(JSON.stringify(pokemon));
+        } catch(err){
+          console.error('Error cloning Pokemon:',err);
+          throw new Error('Failed to clone Pokemon data');
+        }
+      };
+    // const player1Data = this.playerDataCache.get(player1Socket.id);
+    // const player2Data = this.playerDataCache.get(player2Socket.id);
 
     const roomId = `battle_${uuidv4()}`;
     player1Socket.join(roomId);
@@ -164,27 +180,28 @@ class BattleManager {
       roomId,
       player1Socket.id,
       player2Socket.id,
-      player1Data.selectedPokemon,
-      player2Data.selectedPokemon,
+      clonePokemon(player1Data.selectedPokemon),
+      clonePokemon(player2Data.selectedPokemon),
       firstPlayer
     );
 
     this.activeBattles.set(roomId, gameState);
 
-    this.io.to(player1Socket.id).emit('battleStart', {
-      yourPokemon: gameState.pokemon1,
-      opponentPokemon: gameState.pokemon2,
-      currentTurn: firstPlayer === player1Socket.id,
-      opponentName: player2Data.name
+    const battleStartData = (playerSocket,yourPokemon,opponentPokemon,isFirst) => ({
+      yourPokemon: clonePokemon(yourPokemon),
+      opponentPokemon: clonePokemon(opponentPokemon),
+      currentTurn: isFirst,
+      opponentName: playerSocket.id === player1Socket.id ? player2Data.name : player1Data.name
     });
+    player1Socket.emit('battleStart',battleStartData(player1Socket,gameState.pokemon1,gameState.pokemon2,firstPlayer === player1Socket.id));
+    player2Socket.emit('battleStart',battleStartData(player2Socket,gameState.pokemon2,gameState.pokemon1,firstPlayer === player2Socket.id));
 
-    this.io.to(player2Socket.id).emit('battleStart', {
-      yourPokemon: gameState.pokemon2,
-      opponentPokemon: gameState.pokemon1,
-      currentTurn: firstPlayer === player2Socket.id,
-      opponentName: player1Data.name
-    });
-
+    console.log(`Battle started in room ${roomId}`);
+  } catch(error){
+    console.error('Error starting battle:', error);
+    player1Socket.emit('error',{message: 'Failed to start battle'});
+    player2Socket.emit('error',{message: 'Failed to start battle'});
+  }
     console.log(`Battle started in room ${roomId}`);
   }
 
@@ -213,7 +230,13 @@ class BattleManager {
     for (const [roomId, gameState] of this.activeBattles) {
       if (gameState.player1 === socket.id || gameState.player2 === socket.id) {
         const opponentId = gameState.player1 === socket.id ? gameState.player2 : gameState.player1;
-        this.io.to(opponentId).emit('opponentDisconnected');
+        if(this.io.sockets.sockets.get(opponentId)){
+          this.io.to(opponentId).emit('battleEnded',{
+            reason: 'Opponent disconnected',
+            winner: opponentId
+          });
+        }
+        // this.io.to(opponentId).emit('opponentDisconnected');
         this.activeBattles.delete(roomId);
         break;
       }
@@ -222,6 +245,67 @@ class BattleManager {
     // Remove from waiting queue if present
     this.waitingPlayers = this.waitingPlayers.filter(player => player.id !== socket.id);
     this.playerDataCache.delete(socket.id);
+  }
+  async startBattle(player1Socket,player2Socket){
+    const player1Data = this.playerDataCache.get(player1Socket.id);
+    const player2Data = this.playerDataCache.get(player2Socket.id);
+    player1Data.selectionPhase = false;
+    player2Data.selectionPhase = false;
+    const roomId = `battle_${uuidv4()}`;
+    player1Socket.join(roomId);
+    player2Socket.join(roomId);
+
+    const player1Speed = player1Data.selectedPokemon.stats.speed;
+    const player2Speed = player2Data.selectedPokemon.stats.speed;
+    const firstPlayer = player1Speed >= player2Speed ? player1Socket.id : player2Socket.id;
+    const gameState = new GameState(
+      roomId,
+      player1Socket.id,
+      player2Socket.id,
+      JSON.parse(JSON.stringify(player1Data.selectedPokemon)),
+      JSON.parse(JSON.stringify(player2Data.selectedPokemon)),
+      firstPlayer
+    );
+    this.activeBattles.set(roomId,gameState);
+    this.io.to(player1Socket.id).emit('battleStart',{
+      yourPokemon: gameState.pokemon1,
+      opponentPokemon: gameState.pokemon2,
+      currentTurn: firstPlayer === player1Socket.id,
+      opponentName: player2Data.name
+    });
+    this.io.to(player2Socket.id).emit('battleStart',{
+      yourPokemon: gameState.pokemon2,
+      opponentPokemon: gameState.pokemon1,
+      currentTurn: firstPlayer === player2Socket.id,
+      opponentName: player1Data.name
+    });
+    console.log(`Battle started in room ${roomId}`);
+  }
+  cleanUpBattle(roomId){
+    this.activeBattles.delete(roomId);
+  }
+
+  handleExitGame(socket, exitData) {
+    const playerId = socket.id;
+    const opponentId = exitData.opponentId;
+  
+    // Clean up any active battles
+    for (const [roomId, gameState] of this.activeBattles) {
+      if (gameState.player1 === playerId || gameState.player2 === playerId) {
+        this.activeBattles.delete(roomId);
+        if (this.io.sockets.sockets.get(opponentId)) {
+          this.io.to(opponentId).emit('opponentLeftGame');
+        }
+        break;
+      }
+    }
+  
+    // Remove from all tracking
+    this.waitingPlayers = this.waitingPlayers.filter(p => p.id !== playerId);
+    this.playerDataCache.delete(playerId);
+    
+    socket.emit('exitConfirmed');
+    socket.disconnect();
   }
 }
 
