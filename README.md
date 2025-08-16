@@ -14,15 +14,14 @@ A real-time multiplayer Pokemon battle game built with Node.js, Express, and Soc
 
 ```
 poke-battle/
-├── client/                 # Client-side application
-│   ├── client.js          # Main client logic
-│   └── package.json       # Client dependencies
-├── server/                # Server-side application
-│   ├── server.js          # Main server file
-│   ├── game_logic/        # Game logic modules
-│   │   ├── battleManager.js
-│   │   └── gameState.js
-│   └── package.json       # Server dependencies
+├── client/               # Client-side code
+│   ├── client.js         # Main client script
+├── server/               # Server-side code
+│   ├── game_logic/       # Game logic components
+│   ├── server.js         # Main server script
+├── package.json          # Combined dependencies
+├── package-lock.json
+└── README.md
 ```
 
 ## 🚀 Getting Started
@@ -37,22 +36,13 @@ poke-battle/
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd poketonn
+   cd poke-battle
    ```
 
-2. **Install server dependencies**
-   ```bash
-   cd poke-battle/server
-   npm install
+2. **Install dependencies (from root directory)**
    ```
-
-3. **Install client dependencies**
-   ```bash
-   cd ../client
-   npm install
+   npm i or npm install
    ```
-
-### Running the Application
 
 1. **Start the server**
    ```bash
@@ -64,7 +54,12 @@ poke-battle/
 2. **Start the client**
    ```bash
    cd poke-battle/client
-   npm start
+   npm start or node client.js
+   ```
+
+3. **Start the client separately (if needed)**
+   ```bash
+   npm run start-client
    ```
 
 ## Technology Stack
@@ -74,8 +69,6 @@ poke-battle/
 - **Express.js** - Web framework
 - **Socket.IO** - Real-time communication
 - **UUID** - Unique identifier generation
-
-### Frontend
 
 
 ##  Key Files
